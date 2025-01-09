@@ -2,9 +2,12 @@
 
 Marketplace By Nazar MELNYK
 
-
-
 Video overview: <URL HERE>
+
+# Things to check
+
+- [Lifespan of data for mobile & email problem](https://www.notion.so/nazarmelnyk/Entity-Relationsip-Diagram-Data-Model-f519f350066b4c1aba97fe4b48d451f2?pvs=4#22f34299cf414d14909a6e3b917ecab3)
+
 
 ## Scope
 
