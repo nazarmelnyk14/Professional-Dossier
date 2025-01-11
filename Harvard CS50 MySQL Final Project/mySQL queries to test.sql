@@ -1,4 +1,56 @@
-CREATE TABLE `product` (
+/* REMAINED TO DO
+[X] today (January 07, 2025) Finish the log of procedures to find where is the error of the add_product_to_cart
+
+
+[X] timestamps
+
+[X] An order is to be created when the first product is added to the cart
+
+    - User is adding a Product
+    - System checks either
+        - Either such a User exisits
+            If YES, the either they already have an order with the status New
+                If YES, then
+                    - System checks either the Product Already Exists within the cart
+                        If YES, then the action is denied 'Such Product is already within the cart'
+                        If NO, then adds the product to the order
+                If NO, then 
+                    - creates an order 
+                    - adds the product to the order
+            If NO, then 'Such Customer doesn't exist yet'
+
+[] Loop to insert values (random ?) into
+    [] product_order
+    [] address_customer
+
+[] Log files
+    [X] order
+    [] product_order
+    [] customer
+    [] address
+    [] address_customer
+
+[] Triggers 2 per log file (UPDATE (incl DELETE) + INSERT): Product details can evolve, this should not impact the statistics
+    [X] order
+        [X] UPDATE (incl DELETE)
+        [X] INSERT
+    [X] product_order
+        [X] UPDATE (incl DELETE)
+        [X] INSERT -- Not necessary, because the actual price is imported using the procedure
+    [] customer
+    [] address
+    [] address_customer
+
+
+-- ADDITIONAL
+[] Prepared statements to protect against SQL injections ?
+
+*/
+
+-- CREATE DATABASE `CS50`;
+-- USE `CS50`;
+
+CREATE TABLE IF NOT EXISTS `product` (
     `id` INT AUTO_INCREMENT,
     `name` VARCHAR(70) NOT NULL,
     `description` TEXT,
@@ -9,7 +61,8 @@ CREATE TABLE `product` (
 );
 
 
-CREATE TABLE `customer`(
+
+CREATE TABLE IF NOT EXISTS `customer`(
     `id` INT AUTO_INCREMENT,
     `first_name` VARCHAR(70) NOT NULL,
     `last_name` VARCHAR(70) NOT NULL,
@@ -21,7 +74,8 @@ CREATE TABLE `customer`(
 );
 
 
-CREATE TABLE `address`(
+
+CREATE TABLE IF NOT EXISTS `address`(
     `id` INT AUTO_INCREMENT,
     `full_address` VARCHAR(100) NOT NULL,
     `locality` VARCHAR(50) NOT NULL,
@@ -34,7 +88,8 @@ CREATE TABLE `address`(
 );
 
 
-CREATE TABLE `order`(
+
+CREATE TABLE IF NOT EXISTS `order`(
     `id` INT AUTO_INCREMENT,
     `customer_id` INT,
     `address_id` INT,
@@ -48,7 +103,8 @@ CREATE TABLE `order`(
 );
 
 
-CREATE TABLE `cart`(
+
+CREATE TABLE IF NOT EXISTS `cart`(
     `id` INT AUTO_INCREMENT,
     `order_id` INT,
     `product_id` INT,
@@ -62,7 +118,8 @@ CREATE TABLE `cart`(
 );
 
 
-CREATE TABLE `log_cart`(
+
+CREATE TABLE IF NOT EXISTS `log_cart`(
     `id` INT AUTO_INCREMENT,
     `cart_id` INT,
     `action` VARCHAR(15),
@@ -73,7 +130,20 @@ CREATE TABLE `log_cart`(
 );
 
 
-CREATE TABLE `log_order`(
+
+CREATE TABLE IF NOT EXISTS `log_address`(
+    `id` INT AUTO_INCREMENT,
+    `address_id` INT,
+    `action` VARCHAR(15),
+    `description` TINYTEXT,
+    `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(`id`),
+    FOREIGN KEY(`address_id`) REFERENCES `address`(`id`)
+);
+
+
+
+CREATE TABLE IF NOT EXISTS `log_order`(
     `id` INT AUTO_INCREMENT,
     `order_id` INT,
     `action` VARCHAR(15),
@@ -82,6 +152,7 @@ CREATE TABLE `log_order`(
     PRIMARY KEY(`id`),
     FOREIGN KEY(`order_id`) REFERENCES `order`(`id`)
 );
+
 
 CREATE TABLE `log_procedure`(
     `id` INT AUTO_INCREMENT,
@@ -97,15 +168,19 @@ CREATE TABLE `log_procedure`(
 -- get line prices
 
 CREATE VIEW `product_line_price` AS
-SELECT `order_id`, `product_id`, SUM(`quantity`),
-SUM(`quantity` * `product`.`unit_price_USD`)  AS `line_price`
+SELECT 
+	`order_id`, 
+    `product_id`, 
+    SUM(`quantity`),
+    SUM(`quantity` * `product`.`unit_price_USD`)  AS `line_price`
 FROM  `cart`
 JOIN `product` ON `product`.`id` = `cart`.`product_id`
 GROUP BY `order_id`, `product_id`
 ORDER BY `order_id` ASC, `product_id` ASC;
 
-SELECT * FROM `product_line_price` LIMIT 10;
-DROP VIEW `product_line_price`;
+
+-- SELECT * FROM `product_line_price` LIMIT 10;
+-- DROP VIEW `product_line_price`;
 
 
 -- see statistics by products sold
@@ -206,9 +281,13 @@ DELIMITER $$
 --         WHERE `id` = NEW.`id`;
 -- 	END$$
 
+
+
 /* PROCEDURES */
 
--- the procedure will add a new product to  
+-- the procedure will add a new product to an order (cart)
+-- if the order is not in a modifiable state, then a new order will be created
+-- if order is in a allowed state AND the product oready exists in its cart, then the request is denied
 
 CREATE PROCEDURE `add_product_to_cart` (
 	IN `p_customer_id` INT, 
@@ -228,20 +307,13 @@ BEGIN
     -- Extract the order in the status 'new' for the current customer
     SELECT `id` INTO `var_order` FROM `order` WHERE `customer_id` = `p_customer_id` AND `status` = 'new';
     
-    -- Log the results of this step
-    INSERT INTO `log_procedure` (`procedure_name`, `description`) VALUES
-	(
-		CONCAT(`add_product_to_cart`, ' C = ', `p_customer_id`, ' P = ', `p_product_id`,' Q = ', `p_quantity`),
-        CONCAT('var_order = ', `var_order`)
-    );
-    
     -- Check either the Customer exists
     IF `p_customer_id` IN (SELECT `id` FROM `customer`) THEN
     
     -- Log the results of this step
     INSERT INTO `log_procedure` (`procedure_name`, `description`) VALUES
 	(
-		CONCAT(`add_product_to_cart`, ' C = ', `p_customer_id`, ' P = ', `p_product_id`,' Q = ', `p_quantity`),
+		CONCAT('add_product_to_cart', ' C = ', `p_customer_id`, ' P = ', `p_product_id`,' Q = ', `p_quantity`),
         CONCAT('The customer exists')
     );
     
@@ -251,12 +323,12 @@ BEGIN
         -- Log the results of this step
 		INSERT INTO `log_procedure` (`procedure_name`, `description`) VALUES
 		(
-			CONCAT(`add_product_to_cart`, ' C = ', `p_customer_id`, ' P = ', `p_product_id`,' Q = ', `p_quantity`),
-			CONCAT('The order exists AND is in the -new- state')
+			CONCAT('add_product_to_cart', ' C = ', `p_customer_id`, ' P = ', `p_product_id`,' Q = ', `p_quantity`),
+			CONCAT('The order exists AND is in the -new- state. ', 'var_order = ', `var_order`)
 		);
 			
             -- A vadid order exists. Now let's check either the desired product already doesn't exist yet within the cart
-            IF `p_product_id` != (SELECT `product_id` FROM `cart` WHERE `order_id` = `var_order`) THEN
+            IF `p_product_id` NOT IN (SELECT `product_id` FROM `cart` WHERE `order_id` = `var_order`) THEN
             
                 -- Let's conduct the addition of a product to the cart
                 INSERT INTO `cart` (`order_id`, `product_id`, `quantity`, `unit_price`) VALUES
@@ -265,14 +337,25 @@ BEGIN
                 -- Log the results of this step
 				INSERT INTO `log_procedure` (`procedure_name`, `description`) VALUES
 				(
-					CONCAT(`add_product_to_cart`, ' C = ', `p_customer_id`, ' P = ', `p_product_id`,' Q = ', `p_quantity`),
-					CONCAT('A new record was added to the -cart- table, id = ', (SELECT `id` FROM `cart` WHERE ))
+					CONCAT('add_product_to_cart', ' C = ', `p_customer_id`, ' P = ', `p_product_id`,' Q = ', `p_quantity`),
+					CONCAT('This is a new product. Thus a new record was added to the -cart- table, id = ', 
+                        (SELECT `id` FROM `cart` 
+                        WHERE ((`order_id` = `var_order`) AND (`product_id` = `p_product_id`)) ORDER BY `datetime_created` DESC LIMIT 1)
+                        )
 				);
                 
-                
             ELSE
+            
+				-- Log the results of this step
+				INSERT INTO `log_procedure` (`procedure_name`, `description`) VALUES
+				(
+					CONCAT('add_product_to_cart', ' C = ', `p_customer_id`, ' P = ', `p_product_id`,' Q = ', `p_quantity`),
+					CONCAT('Such Product is already within the cart')
+				);
+            
                 SIGNAL SQLSTATE '45001' -- Custom error code
                 SET MESSAGE_TEXT = 'Such Product is already within the cart';
+
             END IF;
 			
 		-- The a valid order doesn't exist. We create a new order and add a product into it
@@ -283,17 +366,44 @@ BEGIN
 
             -- Record the id of the newly order into a variable
             SELECT `id` INTO `var_order` FROM `order` WHERE `customer_id` = `p_customer_id` AND `status` = 'new' ORDER BY `id` DESC LIMIT 1;
+            
+            -- Log the results of this step
+				INSERT INTO `log_procedure` (`procedure_name`, `description`) VALUES
+				(
+					CONCAT('add_product_to_cart', ' C = ', `p_customer_id`, ' P = ', `p_product_id`,' Q = ', `p_quantity`),
+					CONCAT('The Customer does not have yet an order in the -new- state. Thus a new order is created. ', 'var_order = ', `var_order`)
+				);
 
             -- Add the product to that newly created order
             INSERT INTO `cart` (`order_id`, `product_id`, `quantity`, `unit_price`) VALUES
             (`var_order`, `p_product_id`, `p_quantity`, `var_unit_price`);
+            
+            -- Log the results of this step
+				INSERT INTO `log_procedure` (`procedure_name`, `description`) VALUES
+				(
+					CONCAT('add_product_to_cart', ' C = ', `p_customer_id`, ' P = ', `p_product_id`,' Q = ', `p_quantity`),
+					CONCAT('This is a new product.', ' cart_id = ', 
+                        (SELECT `id` FROM `cart` 
+                        WHERE ((`order_id` = `var_order`) AND (`product_id` = `p_product_id`)) ORDER BY `datetime_created` DESC LIMIT 1),
+                        ' is created'
+                        )
+				);
 
 		END IF;
     
     -- The Customer doesn't exist. We exit the procedure with an error message
     ELSE
+    
+        -- Log the results of this step
+				INSERT INTO `log_procedure` (`procedure_name`, `description`) VALUES
+				(
+					CONCAT('add_product_to_cart', ' C = ', `p_customer_id`, ' P = ', `p_product_id`,' Q = ', `p_quantity`),
+					CONCAT('Such Customer does NOT exist')
+				);
+    
 		SIGNAL SQLSTATE '45004' -- Custom error code
-		SET MESSAGE_TEXT = 'Such Customer does NOT exist';	
+		SET MESSAGE_TEXT = 'Such Customer does NOT exist';
+        
     END IF;
 END$$
 

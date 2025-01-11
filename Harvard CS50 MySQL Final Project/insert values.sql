@@ -54,46 +54,6 @@ INSERT INTO `order` (`customer_id`, `address_id`, `status`) VALUES
 (11, 11, 'payed');
 
 
-INSERT INTO `product_order` (`order_id`, `product_id`, `quantity`, `unit_price`) VALUES
--- Order 1: Contains 2 products
-(1, 1, 2),  -- Product 1 with quantity 2
-(1, 2, 1),  -- Product 2 with quantity 1
-
--- Order 2: Contains 1 product
-(2, 3, 3),  -- Product 3 with quantity 3
-
--- Order 3: Contains 3 products
-(3, 4, 1),  -- Product 4 with quantity 1
-(3, 5, 2),  -- Product 5 with quantity 2
-(3, 6, 1),  -- Product 6 with quantity 1
-
--- Order 4: Contains 1 product
-(4, 7, 4),  -- Product 7 with quantity 4
-
--- Order 5: Contains 2 products
-(5, 8, 2),  -- Product 8 with quantity 2
-(5, 9, 3),  -- Product 9 with quantity 3
-
--- Order 6: Contains 1 product
-(6, 10, 1), -- Product 10 with quantity 1
-
--- Order 7: Contains 1 product
-(7, 1, 5),  -- Product 1 with quantity 5
-
--- Order 8: Contains 2 products
-(8, 2, 1),  -- Product 2 with quantity 1
-(8, 3, 2),  -- Product 3 with quantity 2
-
--- Order 9: Contains 1 product
-(9, 4, 3),  -- Product 4 with quantity 3
-
--- Order 10: Contains 2 products
-(10, 5, 4), -- Product 5 with quantity 4
-(10, 6, 1), -- Product 6 with quantity 1
-
--- Order 11: Contains 1 product
-(11, 7, 2); -- Product 7 with quantity 2
-
 INSERT INTO `cart` (`order_id`, `product_id`, `quantity`, `unit_price`) VALUES
 -- Order 1: Contains 2 products
 (1, 1, 2, (SELECT `unit_price_USD` FROM `product` WHERE `id` = 1)),  -- Product 1 with quantity 2

@@ -18,11 +18,13 @@ DROP VIEW IF EXISTS
 -- DROP TABLE IF EXISTS `product`; 
 -- DROP TABLE IF EXISTS `customer`; 
 -- DROP TABLE IF EXISTS `address`;
+-- DROP TABLE IF EXISTS `log_address`;
 
 
 
 DROP TABLE IF EXISTS
 	`cart`,
+	`log_address`,
     `log_order`,
     `log_cart`,
     `order`, 
@@ -32,4 +34,4 @@ DROP TABLE IF EXISTS
     `log_procedure` -- to remove from this list before submission   
 ;
 
-DROP TABLE IF EXISTS `log_procedures`;
+-- DROP TABLE IF EXISTS `log_procedures`;
