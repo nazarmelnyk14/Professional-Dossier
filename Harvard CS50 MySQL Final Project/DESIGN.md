@@ -39,9 +39,9 @@ Out of scope are:
 > * What should a user be able to do with your database?
 > * What's beyond the scope of what a user should be able to do with your database?
 
-As per the section [`scope`](#scope) the only user of the system is the Customer.
+As per the section [`scope`](#scope) the only user of the system is the Customer. Such that the interaction of other User with the database is not considered in this document.
 
-Scope: The Customer can :
+*Scope*: The Customer can :
 - with regards to a **product** :
     - add a product item to a shopping cart,
     - adjust its quantity within a shopping cart,
@@ -51,10 +51,11 @@ Scope: The Customer can :
     - edit shipping address
     - remove shipping address
 - with regards to an **order**:
-    - make payment
+    - select the shipping address
+    - make the payment
 
 
-Out of scope: The **Customer** cannot: 
+*Out of scope*: The **Customer** cannot: 
 - with regards to the **product**:
      - Create a new product
     - Modify existing product
@@ -303,3 +304,4 @@ The following views were created:
 - [] An order cannot be paid unless the shipping address is defined for the order
 - [] The price is fixed only when paid
 - [] The order price is updated if the product price is changed
+- [] An order cannot be deleted by its own. An order is deleted when either its customer or its address is deleted

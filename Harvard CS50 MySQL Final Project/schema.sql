@@ -22,12 +22,20 @@
 [] Loop to insert values (random ?) into
     [] product_order
     [] address_customer
+    
+[] Logs an JSONs
+	[X] order
+    [] cart
+    [X] customer
+    [X] address
+    [] address_customer
+[] User procedures
 
 [] Log files
     [X] order
     [] product_order
-    [] customer
-    [] address
+    [X] customer
+    [X] address
     [] address_customer
 
 [] Triggers 2 per log file (UPDATE (incl DELETE) + INSERT): Product details can evolve, this should not impact the statistics
@@ -55,6 +63,7 @@ CREATE TABLE IF NOT EXISTS `product` (
     `name` VARCHAR(70) NOT NULL,
     `description` TEXT,
     `unit_price_USD` DECIMAL(12 , 2) NOT NULL,
+	`deleted` BIT DEFAULT 0, -- the value of 1 (one) corresponds to 'yes', whereas 0 (zero) corresponds to 'no'
     `datetime_created` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
 	`datetime_last_changed` DATETIME(0) DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`)
@@ -94,12 +103,11 @@ CREATE TABLE IF NOT EXISTS `order`(
     `customer_id` INT,
     `address_id` INT,
     `status` ENUM('new', 'payed', 'shipped') NOT NULL,
-    `deleted` BIT DEFAULT 0, -- the value of 1 (one) corresponds to 'yes', whereas 0 (zero) corresponds to 'no'
     `datetime_created` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
     `datetime_last_changed` DATETIME(0) DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY(`id`),
-    FOREIGN KEY(`address_id`) REFERENCES `address`(`id`),
-    FOREIGN KEY(`customer_id`) REFERENCES `customer`(`id`)
+    FOREIGN KEY(`address_id`) REFERENCES `address`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY(`customer_id`) REFERENCES `customer`(`id`) ON DELETE CASCADE
 );
 
 
@@ -114,7 +122,7 @@ CREATE TABLE IF NOT EXISTS `cart`(
     `datetime_created` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
     `datetime_last_changed` DATETIME(0) DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY(`id`),
-    FOREIGN KEY(`order_id`) REFERENCES `order`(`id`)
+    FOREIGN KEY(`order_id`) REFERENCES `order`(`id`) ON DELETE CASCADE
 );
 
 
@@ -126,7 +134,7 @@ CREATE TABLE IF NOT EXISTS `log_cart`(
     `description` TINYTEXT,
     `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(`id`),
-    FOREIGN KEY(`cart_id`) REFERENCES `cart`(`id`)
+    FOREIGN KEY(`cart_id`) REFERENCES `cart`(`id`) ON DELETE CASCADE
 );
 
 
@@ -136,9 +144,10 @@ CREATE TABLE IF NOT EXISTS `log_address`(
     `address_id` INT,
     `action` VARCHAR(15),
     `description` TINYTEXT,
+    `changed_data` JSON,
     `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(`id`),
-    FOREIGN KEY(`address_id`) REFERENCES `address`(`id`)
+    FOREIGN KEY(`address_id`) REFERENCES `address`(`id`) ON DELETE CASCADE
 );
 
 
@@ -148,9 +157,21 @@ CREATE TABLE IF NOT EXISTS `log_order`(
     `order_id` INT,
     `action` VARCHAR(15),
     `description` TINYTEXT,
+    `changed_data` JSON,
     `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(`id`),
-    FOREIGN KEY(`order_id`) REFERENCES `order`(`id`)
+    FOREIGN KEY(`order_id`) REFERENCES `order`(`id`) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS `log_customer`(
+    `id` INT AUTO_INCREMENT,
+    `customer_id` INT,
+    `action` VARCHAR(15),
+    `description` TINYTEXT,
+    `changed_data` JSON,
+    `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(`id`),
+    FOREIGN KEY(`customer_id`) REFERENCES `customer`(`id`) ON DELETE CASCADE
 );
 
 
@@ -177,10 +198,6 @@ FROM  `cart`
 JOIN `product` ON `product`.`id` = `cart`.`product_id`
 GROUP BY `order_id`, `product_id`
 ORDER BY `order_id` ASC, `product_id` ASC;
-
-
--- SELECT * FROM `product_line_price` LIMIT 10;
--- DROP VIEW `product_line_price`;
 
 
 -- see statistics by products sold
@@ -225,33 +242,34 @@ CREATE TRIGGER `trigger_log_update_order`
 	FOR EACH ROW
 	BEGIN
     
-        -- Check on address_id column
-		IF NEW.`address_id` != OLD.`address_id` 
-        THEN
-			INSERT INTO `log_order`(`action`, `order_id`, `description`) VALUES
-			(CONCAT('UPDATE'), OLD.`id`, CONCAT('new address_id = ', NEW.`address_id`, ', old address_id = ', OLD.`address_id`));
+		DECLARE `changed_data` JSON;
+        
+        -- Build the JSON object with only the changed fields
+        SET `changed_data` = JSON_OBJECT();
+        
+        -- Check each field and add the result to the JSON object
+        IF NOT (NEW.`address_id` <=> OLD.`address_id` ) THEN
+			SET `changed_data` = JSON_INSERT(`changed_data`,'$.address_id', JSON_OBJECT('old', OLD.`address_id`, 'new', NEW.`address_id`));
 		END IF;
         
-        -- Check on customer_id column
-		IF NEW.`customer_id` != OLD.`customer_id` 
-        THEN
-			INSERT INTO `log_order`(`action`, `order_id`, `description`) VALUES
-			(CONCAT('UPDATE'), OLD.`id`, CONCAT('new customer_id = ', NEW.`customer_id`, ', old customer_id = ', OLD.`customer_id`));
-		END IF;
-            
-        -- Check on status column
-		IF NEW.`status` != OLD.`status` 
-        THEN
-			INSERT INTO `log_order`(`action`, `order_id`, `description`) VALUES
-			(CONCAT('UPDATE'), OLD.`id`, CONCAT('new status = ', NEW.`status`, ', old status = ', OLD.`status`));
-		END IF;
+        IF NOT (NEW.`customer_id` <=> OLD.`customer_id`) THEN
+			SET `changed_data` = JSON_INSERT(`changed_data`,'$.customer_id', JSON_OBJECT('old', OLD.`customer_id`, 'new', NEW.`customer_id`));
+        END IF;
+		
+        IF NOT (NEW.`status` <=> OLD.`status`) THEN
+			SET `changed_data` = JSON_INSERT(`changed_data`,'$.status', JSON_OBJECT('old', OLD.`status`, 'new', NEW.`status`));
+        END IF;
         
-         -- Check on deleted column
-		IF NEW.`deleted` != OLD.`deleted` 
-        THEN
-			INSERT INTO `log_order`(`action`, `order_id`, `description`) VALUES
-			(CONCAT('Order No = ', OLD.`id`, ' is deleted with the status = ', OLD.`status`, ' for the customer No = ', OLD.`customer_id`, ' supposed to be shipped at the address_id = ', OLD.`address_id`));
-		END IF;  
+        -- Only log if there are changes
+        IF JSON_LENGTH(`changed_data`) > 0 THEN
+			INSERT INTO `log_order`(`order_id`, `action`, `description`, `changed_data`) VALUES
+            (
+				OLD.`id`,
+                'UPDATE',
+                'Order is updated',
+                `changed_data`
+            );
+        END IF;
         
 	END$$
 
@@ -259,35 +277,214 @@ CREATE TRIGGER `trigger_log_insert_order`
 	AFTER INSERT ON `order`
 	FOR EACH ROW
 	BEGIN
-       	INSERT INTO `log_order`(`action`, `order_id`, `description`) VALUES
+    
+       	INSERT INTO `log_order`(`order_id`, `action`, `description`, `changed_data`) VALUES
 		(
-        CONCAT('INSERT'), 
-        NEW.`id`, 
-        CONCAT('Order No = ', NEW.`id`, ' is created with the status = ', NEW.`status`, ' for the customer No = ', NEW.`customer_id`, ' to be shipped at the address_id = ', NEW.`address_id`)
+        NEW.`id`,
+        'INSERT',
+        'Order is created',
+        JSON_OBJECT(
+			'id', NEW.`id`,
+            'customer_id', NEW.`customer_id`,
+            'address_id', NEW.`address_id`,
+            'status', NEW.`status`
+            )
 		);
+        
 	END$$
+    
+-- Triggers on the table Customer
+
+CREATE TRIGGER `trigger_log_update_customer`
+	AFTER UPDATE ON `customer`
+	FOR EACH ROW
+	BEGIN
+		DECLARE `changed_data` JSON;
+        
+        -- Build the JSON object with only the changed fields
+		SET `changed_data` = JSON_OBJECT();
+        
+        -- Check each field for changes and add them to the JSON object
+		IF NOT (NEW.`first_name` <=> OLD.`first_name`) THEN
+			SET `changed_data` = JSON_INSERT(`changed_data`, '$.first_name', JSON_OBJECT('old', OLD.`first_name`, 'new', NEW.`first_name`));
+		END IF;
+
+		IF NOT (NEW.`last_name` <=> OLD.`last_name`) THEN
+			SET `changed_data` = JSON_INSERT(`changed_data`, '$.last_name', JSON_OBJECT('old', OLD.`last_name`, 'new', NEW.`last_name`));
+		END IF;
+
+		IF NOT (NEW.`email` <=> OLD.`email`) THEN
+			SET `changed_data` = JSON_INSERT(`changed_data`, '$.email', JSON_OBJECT('old', OLD.`email`, 'new', NEW.`email`));
+		END IF;
+
+		IF NOT (NEW.`mobile_number` <=> OLD.`mobile_number`) THEN
+			SET `changed_data` = JSON_INSERT(`changed_data`, '$.mobile_number', JSON_OBJECT('old', OLD.`mobile_number`, 'new', NEW.`mobile_number`));
+		END IF;
+        
+		-- Only log if there are changes
+        IF JSON_LENGTH(changed_data) > 0 THEN
+			INSERT INTO `log_customer`(`customer_id`, `action`, `description`, `changed_data`) VALUES
+			(
+			OLD.`id`,
+			'UPDATE',
+			'Customer info is updated',        
+			`changed_data`
+			);
+		END IF;
+        
+	END$$
+
+
+CREATE TRIGGER `trigger_log_insert_customer`
+	AFTER INSERT ON `customer`
+	FOR EACH ROW
+	BEGIN
+		
+       	INSERT INTO `log_customer`(`customer_id`, `action`, `description`, `changed_data`) VALUES
+		(
+        NEW.`id`, 
+        'INSERT', 
+        'Customer is created',
+        JSON_OBJECT(
+			'id', NEW.`id`,
+            'first_name', NEW.`first_name`,
+            'last_name', NEW.`last_name`,
+            'email', NEW.`email`,
+            'mobile_number', NEW.`mobile_number`
+            )
+		);
+        
+	END$$
+    
+
+CREATE TRIGGER `trigger_log_delete_customer`
+	BEFORE DELETE ON `customer`
+	FOR EACH ROW
+	BEGIN
+    
+       	INSERT INTO `log_customer`(`customer_id`, `action`, `description`, `changed_data`) VALUES
+		(
+        OLD.`id`, 
+        'DELETE', 
+        'Customer is deleted', 
+        JSON_OBJECT(
+			'id', OLD.`id`,
+            'first_name', OLD.`first_name`,
+            'last_name', OLD.`last_name`,
+            'email', OLD.`email`,
+            'mobile_number', OLD.`mobile_number`
+            )
+		);
+        
+	END$$
+    
+    
+CREATE TRIGGER `trigger_log_insert_address`
+	AFTER INSERT ON `address`
+    FOR EACH ROW
+    BEGIN
+        
+        INSERT INTO `log_address` (`address_id`, `action`, `description`, `changed_data`) VALUES
+        (
+			NEW.`id`,
+            'INSERT',
+            'New address is created',
+            JSON_OBJECT(
+				'id', NEW.`id`,
+                'full_address', NEW.`full_address`,
+                'locality', NEW.`locality`,
+                'postal_code', NEW.`postal_code`,
+                'state', NEW.`state`,
+                'country', NEW.`country`
+            )
+        );
+    
+    END $$
+    
+    
+CREATE TRIGGER `trigger_log_update_address`
+	AFTER INSERT ON `address`
+    FOR EACH ROW
+    BEGIN
+		
+        DECLARE `changed_data` JSON;
+        
+        -- Initialize the object
+        SET `changed_data` = JSON_OBJECT();
+        
+        -- Check each field for changes
+        IF NOT (NEW.`full_address` <=> OLD.`full_address`) THEN
+			SET `changed_data` = JSON_INSERT(`changed_data`, '$.full_address', JSON_OBJECT('old', OLD.`full_address`, 'new', NEW.`full_address`));
+        END IF;
+        
+        IF NOT (NEW.`locality` <=> OLD.`locality`) THEN
+			SET `changed_data` = JSON_INSERT(`changed_data`, '$.locality', JSON_OBJECT('old', OLD.`locality`, 'new', NEW.`locality`));
+        END IF;
+        
+        IF NOT (NEW.`postal_code` <=> OLD.`postal_code`) THEN
+			SET `changed_data` = JSON_INSERT(`changed_data`, '$.postal_code', JSON_OBJECT('old', OLD.`postal_code`, 'new', NEW.`postal_code`));
+        END IF;
+        
+        IF NOT (NEW.`state` <=> OLD.`state`) THEN
+			SET `changed_data` = JSON_INSERT(`changed_data`, '$.state', JSON_OBJECT('old', OLD.`state`, 'new', NEW.`state`));
+        END IF;
+        
+        IF NOT (NEW.`country` <=> OLD.`country`) THEN
+			SET `changed_data` = JSON_INSERT(`changed_data`, '$.country', JSON_OBJECT('old', OLD.`country`, 'new', NEW.`country`));
+        END IF;
+        
+        
+        -- Only log if there are changes
+        IF JSON_LENGTH(changed_data) > 0 THEN
+			INSERT INTO `log_address` (`address_id`, `action`, `description`, `changed_data`) VALUES
+				(
+					NEW.`id`,
+					'UPDATE',
+					'Address is updated',
+					`changed_data`
+				);
+		END IF;
+    
+    END $$
+
+
+
+CREATE TRIGGER `trigger_log_delete_address`
+	BEFORE DELETE ON `address`
+    FOR EACH ROW
+    BEGIN
+        
+        INSERT INTO `log_address` (`address_id`, `action`, `description`, `changed_data`) VALUES
+        (
+			OLD.`id`,
+            'DELETE',
+            'Address is deleted',
+            JSON_OBJECT(
+				'id', OLD.`id`,
+                'full_address', OLD.`full_address`,
+                'locality', OLD.`locality`,
+                'postal_code', OLD.`postal_code`,
+                'state', OLD.`state`,
+                'country', OLD.`country`
+            )
+        );
+    
+    END $$
+
 
 -- triggers on changes to the `order` table do not exist. Any changes to the `cart` table are traced inside `log_cart` table directly using the queries of the respective procedures on carts
 
 DELIMITER $$
 
 -- This trigger is commented, because the actual price is directly managed by the Procedure `add_product_to_cart`
--- CREATE TRIGGER `trigger_log_insert_`cart`
--- 	AFTER INSERT ON `cart`
--- 	FOR EACH ROW
--- 	BEGIN
---        	UPDATE `cart`
--- 		SET `unit_price`  = (SELECT `unit_price_USD` FROM `product` WHERE `product`.`id` = NEW.`product_id`)
---         WHERE `id` = NEW.`id`;
--- 	END$$
-
-
 
 /* PROCEDURES */
 
--- the procedure will add a new product to an order (cart)
--- if the order is not in a modifiable state, then a new order will be created
--- if order is in a allowed state AND the product oready exists in its cart, then the request is denied
+/* The procedure will add a new product to an order (cart)
+- to an existing order (if the order is still in a modifiable state) 
+- if not, a new to a new order is created (if order is NOT in a state allowing the additing of new products)
+
+The addition is denied if the product oready exists within the order, or such a customer doesn't exist */
 
 CREATE PROCEDURE `add_product_to_cart` (
 	IN `p_customer_id` INT, 
@@ -300,9 +497,6 @@ BEGIN
     
     -- Extract the current price into a variable
     SELECT `unit_price_USD` INTO `var_unit_price` FROM `product` WHERE `id` = `p_product_id`;
-    
-    -- Extract the order status into a variable
-    -- SELECT `status` INTO `var_order_status` FROM `order` WHERE `id` = `p_order_id`;
     
     -- Extract the order in the status 'new' for the current customer
     SELECT `id` INTO `var_order` FROM `order` WHERE `customer_id` = `p_customer_id` AND `status` = 'new';
@@ -529,109 +723,3 @@ BEGIN
 END$$
 
 DELIMITER ;
-
-CALL `remove_product_from_cart`(2,3); 
-
-
-
-
-
-/* TESTING QUERIES */ 
-
-
-
-SELECT * FROM `order`;
-DESCRIBE `order`;
-TRUNCATE TABLE `order`;
-
-SELECT * FROM `cart`;
-
-
-SELECT * FROM `cart`
-JOIN `product` ON `product`.`id` = `cart`.`product_id` 
-WHERE `cart`.`order_id` = 2;
-
-UPDATE `order`
-	SET `status` = 'shipped'
-	WHERE `id` = 10;
-
-UPDATE `order`
-	SET `address_id` = 4
-	WHERE `id` = 6;
-    
-UPDATE `cart`
-	SET `quantity` = 4
-	WHERE `id` = 6;
-    
-INSERT INTO `order` (`customer_id`, `address_id`, `status`) VALUES
--- (1, 1, 'new'),
--- (2, 2, 'payed'),
--- (3, 3, 'shipped'),
--- (4, 4, 'new'),
--- (5, 5, 'payed'),
--- (6, 6, 'shipped'),
--- (7, 7, 'new'),
--- (8, 8, 'payed'),
--- (9, 9, 'shipped'),
-(8, 8, 'new'),
-(1, 2, 'payed');
-
-DELETE FROM `order` WHERE `id` = 12;
-
-SELECT * FROM `log_order`;
-
--- Drop a trigger
-DROP TRIGGER `trigger_log_insert_order`;
-
--- see the triggerss
-SELECT TRIGGER_SCHEMA, TRIGGER_NAME, EVENT_MANIPULATION, EVENT_OBJECT_TABLE, ACTION_TIMING, ACTION_STATEMENT
-FROM INFORMATION_SCHEMA.TRIGGERS
-WHERE TRIGGER_SCHEMA = 'project';
-
--- 
-SELECT * FROM `product_line_price` LIMIT 10;
-DROP VIEW `product_line_price`;
-
-SELECT * FROM `stats_by_product` LIMIT 10;
-DROP VIEW `stats_by_product`;
-
-SELECT * FROM `stats_by_order` LIMIT 10;
-DROP VIEW `stats_by_order`;
-
-
-
--- =========== SAFE PROCEDURE (NO CHECK EITHER THE PRODUCT ALREADY EXISTS WITHIN THE ORDER)
--- CREATE PROCEDURE `add_product_to_cart` (
--- 	IN `p_order_id` INT, 
---     IN `p_product_id` INT, 
---     IN `p_quantity` INT)
--- BEGIN
--- 	DECLARE `p_unit_price` DECIMAL(12 , 2 );
---     DECLARE `var_order_status` ENUM('new', 'payed', 'shipped');
---     
---     -- Extract the current price into a variable
---     SELECT `unit_price_USD` INTO `p_unit_price` FROM `product` WHERE `id` = `p_product_id`;
---     -- Extract the order status into a variable
---     SELECT `status` INTO `var_order_status` FROM `order` WHERE `id` = `p_order_id`;
---     
---     -- Check either the order exists
--- 	IF 	`var_order_status` IS NOT NULL THEN
---     
--- 		-- Exists. Then let's check either the order is in the allowed status (addition to the basket is allowed only for the orders in the status 'new')
--- 		IF `var_order_status` = 'new' THEN
--- 			
---             -- In allowed state. Let's conduct the addition of a product to a basket
--- 			INSERT INTO `cart` (`order_id`, `product_id`, `quantity`, `unit_price`) VALUES
--- 			(`p_order_id`, `p_product_id`, `p_quantity`, `p_unit_price`);
--- 		ELSE
--- 			SIGNAL SQLSTATE '45000' -- Custom error code
--- 			SET MESSAGE_TEXT = 'Such Order is NOT in a allowed state';
--- 		END IF;
---         
--- 	-- The order doesn't exist. We exit the procedure with the right error message
---     ELSE
--- 		SIGNAL SQLSTATE '45000' -- Custom error code
--- 		SET MESSAGE_TEXT = 'Such Order does NOT exist';	
--- 	END IF;
---     
--- END$$
