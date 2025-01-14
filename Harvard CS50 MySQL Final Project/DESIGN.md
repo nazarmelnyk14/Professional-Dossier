@@ -305,3 +305,10 @@ The following views were created:
 - [] The price is fixed only when paid
 - [] The order price is updated if the product price is changed
 - [] An order cannot be deleted by its own. An order is deleted when either its customer or its address is deleted
+
+
+# Ideas
+
+## First address associated is default
+
+When Customer associates  with them first address, then this address because default address to where the order will be shipped. Later on the Customer can change the address

@@ -1,17 +1,21 @@
 DROP TRIGGER IF EXISTS `trigger_log_insert_order`;
 DROP TRIGGER IF EXISTS `trigger_log_update_order`;
 
-DROP TRIGGER IF EXISTS `trigger_log_update_customer`;
 DROP TRIGGER IF EXISTS `trigger_log_insert_customer`;
+DROP TRIGGER IF EXISTS `trigger_log_update_customer`;
 DROP TRIGGER IF EXISTS `trigger_log_delete_customer`;
 
-DROP TRIGGER IF EXISTS `trigger_log_update_address`;
 DROP TRIGGER IF EXISTS `trigger_log_insert_address`;
+DROP TRIGGER IF EXISTS `trigger_log_update_address`;
 DROP TRIGGER IF EXISTS `trigger_log_delete_address`;
 
-DROP TRIGGER IF EXISTS `trigger_log_update_cart`;
 DROP TRIGGER IF EXISTS `trigger_log_insert_cart`;
+DROP TRIGGER IF EXISTS `trigger_log_update_cart`;
 DROP TRIGGER IF EXISTS `trigger_log_delete_cart`;
+
+DROP TRIGGER IF EXISTS `trigger_log_insert_customer_address`;
+DROP TRIGGER IF EXISTS `trigger_log_update_customer_address`;
+DROP TRIGGER IF EXISTS `trigger_log_delete_customer_address`;
 
 
 DROP PROCEDURE IF EXISTS `add_product_to_cart`;
@@ -47,6 +51,8 @@ DROP TABLE IF EXISTS
     `product`, 
     `customer`, 
     `address`,
+    `customer_address`,
+    `log_customer_address`,
     `log_procedure` -- to remove from this list before submission   
 ;
 

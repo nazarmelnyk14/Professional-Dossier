@@ -53,6 +53,7 @@
 
 -- ADDITIONAL
 [] Prepared statements to protect against SQL injections ?
+[] SELECT statements inside JSON objects to 
 
 */
 
@@ -97,6 +98,18 @@ CREATE TABLE IF NOT EXISTS `address`(
     PRIMARY KEY(`id`)
 );
 
+
+CREATE TABLE IF NOT EXISTS `customer_address` (
+	`id` INT AUTO_INCREMENT,
+    `customer_id` INT,
+    `address_id` INT,
+    `nickname` VARCHAR(30),
+    `datetime_created` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
+    `datetime_last_changed` DATETIME(0) DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    FOREIGN KEY (`customer_id`) REFERENCES `customer`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`address_id`) REFERENCES `address`(`id`) ON DELETE CASCADE
+);
 
 
 CREATE TABLE IF NOT EXISTS `order`(
@@ -152,6 +165,19 @@ CREATE TABLE IF NOT EXISTS `log_address`(
     `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(`id`),
     FOREIGN KEY(`address_id`) REFERENCES `address`(`id`) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS `log_customer_address`(
+	`id` INT AUTO_INCREMENT,
+    `customer_id` INT,
+    `address_id` INT,
+    `action` VARCHAR(15),
+    `description` TINYTEXT,
+    `changed_data` JSON,
+    `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(`id`),
+    FOREIGN KEY(`address_id`) REFERENCES `address`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY(`customer_id`) REFERENCES `customer`(`id`) ON DELETE CASCADE
 );
 
 
@@ -554,6 +580,73 @@ BEGIN
 END$$
 
 
+CREATE TRIGGER `trigger_log_insert_customer_address`
+AFTER INSERT ON `customer_address`
+FOR EACH ROW
+BEGIN
+
+	INSERT INTO `log_customer_address`(`customer_id`, `address_id`, `action`, `description`, `changed_data`) VALUES (
+		NEW.`customer_id`,
+        NEW.`address_id`,
+        'INSERT',
+        'New address is associated with a customer',
+        JSON_OBJECT(
+				'customer_address_id', NEW.`id`,
+                'customer_id', NEW.`customer_id`,
+                'address_id', NEW.`address_id`,
+                'nickname', NEW.`nickname`
+			)
+    );
+
+END$$
+
+CREATE TRIGGER `trigger_log_delete_customer_address`
+BEFORE DELETE ON `customer_address`
+FOR EACH ROW
+BEGIN
+
+	INSERT INTO `log_customer_address`(`customer_id`, `address_id`, `action`, `description`, `changed_data`) VALUES (
+		OLD.`customer_id`,
+        OLD.`address_id`,
+        'DELETE',
+        'An address is disassociated with a customer',
+        JSON_OBJECT(
+				'customer_address_id', OLD.`id`,
+                'customer_id', OLD.`customer_id`,
+                'address_id', OLD.`address_id`,
+                'nickname', OLD.`nickname`
+			)
+    );
+
+END$$
+
+CREATE TRIGGER `trigger_log_update_customer_address`
+AFTER UPDATE ON `customer_address`
+FOR EACH ROW
+BEGIN
+	
+    DECLARE `changed_data` JSON;
+    
+    -- Initialize the JSON object
+    SET `changed_data`= JSON_OBJECT();
+    
+    -- Check the evolution of each attribute and append it to the JSON object
+    IF NOT (NEW.`nickname` <=> OLD.`nickname`) THEN
+		SET `changed_data` = JSON_INSERT(`changed_data`, '$.nickname','old', OLD.`nickname`, 'new', NEW.`nickname`);
+    END IF;
+
+	-- Log only if the JSON if not empty
+    IF JSON_LENGTH(`changed_data`) > 0 THEN
+		INSERT INTO `log_customer_address`(`customer_id`, `address_id`, `action`, `description`, `changed_data`) VALUES (
+		NEW.`customer_id`,
+        NEW.`address_id`,
+        'UPDATE',
+        'An association of an address with a customer is updated',
+        `changed_data`
+    );
+    END IF;
+    
+END$$
 
 -- triggers on changes to the `order` table do not exist. Any changes to the `cart` table are traced inside `log_cart` table directly using the queries of the respective procedures on carts
 
