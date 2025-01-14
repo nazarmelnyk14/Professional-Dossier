@@ -25,15 +25,16 @@
     
 [] Logs an JSONs
 	[X] order
-    [] cart
+    [X] cart
     [X] customer
     [X] address
     [] address_customer
+    
 [] User procedures
 
 [] Log files
     [X] order
-    [] product_order
+    [X] cart
     [X] customer
     [X] address
     [] address_customer
@@ -130,11 +131,14 @@ CREATE TABLE IF NOT EXISTS `cart`(
 CREATE TABLE IF NOT EXISTS `log_cart`(
     `id` INT AUTO_INCREMENT,
     `cart_id` INT,
+    `order_id` INT,
     `action` VARCHAR(15),
     `description` TINYTEXT,
+    `changed_data` JSON,
     `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(`id`),
-    FOREIGN KEY(`cart_id`) REFERENCES `cart`(`id`) ON DELETE CASCADE
+    FOREIGN KEY(`cart_id`) REFERENCES `cart`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY(`order_id`) REFERENCES `order`(`id`) ON DELETE CASCADE
 );
 
 
@@ -470,6 +474,85 @@ CREATE TRIGGER `trigger_log_delete_address`
         );
     
     END $$
+
+
+CREATE TRIGGER `trigger_log_insert_cart`
+AFTER INSERT ON `cart`
+FOR EACH ROW
+BEGIN
+
+	INSERT INTO `log_cart`(`cart_id`, `order_id`, `action`, `description`, `changed_data`) VALUES (
+		NEW.`id`,
+        NEW.`order_id`,
+        'INSERT',
+        'A new product was added to a cart',
+        JSON_OBJECT(
+			'cart_id', NEW.`id`,
+            'order_id', NEW.`order_id`,
+            'product_id', NEW.`product_id`,
+            'quantity', NEW.`quantity`,
+            'unit_price', NEW.`unit_price`
+        )
+    );
+
+END$$
+
+
+CREATE TRIGGER `trigger_log_delete_cart`
+BEFORE DELETE ON `cart`
+FOR EACH ROW
+BEGIN
+
+	INSERT INTO `log_cart`(`cart_id`, `order_id`, `action`, `description`, `changed_data`) VALUES (
+		OLD.`id`,
+        OLD.`order_id`,
+        'DELETE',
+        'A product was removed from a cart',
+        JSON_OBJECT(
+			'cart_id', OLD.`id`,
+            'order_id', OLD.`order_id`,
+            'product_id', OLD.`product_id`,
+            'quantity', OLD.`quantity`,
+            'unit_price', OLD.`unit_price`
+        )
+    );
+
+END$$
+
+
+CREATE TRIGGER `trigger_log_update_cart`
+AFTER UPDATE ON `cart`
+FOR EACH ROW
+BEGIN
+
+	DECLARE `changed_data` JSON;
+    
+    -- Initialize the JSON object
+    SET `changed_data` = JSON_OBJECT();
+    
+    /* Check the evolution of each column and add it to the JSON object
+    The only evolution possible is the change of quantity or price. Other evolutions (change of order, product) are not possible and are managed via removal of a cart record and creation of a new one */
+    IF NOT (NEW.`quantity` <=> OLD.`quantity`) THEN
+		SET `changed_data` = JSON_INSERT(`changed_data`, '$.quantity', JSON_OBJECT('old', OLD.`quantity`, 'new', NEW.`quantity`));
+    END IF;
+    
+    IF NOT (NEW.`unit_price` <=> OLD.`unit_price`) THEN
+		SET `changed_data` = JSON_INSERT(`changed_data`, '$.unit_price', JSON_OBJECT('old', OLD.`unit_price`, 'new', NEW.`unit_price`));
+    END IF;
+    
+    -- Only log if there are changes
+    IF JSON_LENGTH(`changed_data`) > 0 THEN
+		INSERT INTO `log_cart`(`cart_id`, `order_id`, `action`, `description`, `changed_data`) VALUES (
+		NEW.`id`,
+        NEW.`order_id`,
+        'INSERT',
+        'A new product was added to a cart',
+        `changed_data`
+		);
+    END IF;
+
+END$$
+
 
 
 -- triggers on changes to the `order` table do not exist. Any changes to the `cart` table are traced inside `log_cart` table directly using the queries of the respective procedures on carts

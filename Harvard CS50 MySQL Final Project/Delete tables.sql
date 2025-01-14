@@ -9,6 +9,10 @@ DROP TRIGGER IF EXISTS `trigger_log_update_address`;
 DROP TRIGGER IF EXISTS `trigger_log_insert_address`;
 DROP TRIGGER IF EXISTS `trigger_log_delete_address`;
 
+DROP TRIGGER IF EXISTS `trigger_log_update_cart`;
+DROP TRIGGER IF EXISTS `trigger_log_insert_cart`;
+DROP TRIGGER IF EXISTS `trigger_log_delete_cart`;
+
 
 DROP PROCEDURE IF EXISTS `add_product_to_cart`;
 DROP PROCEDURE IF EXISTS `modify_product_quantity_at_cart`;
@@ -23,6 +27,7 @@ DROP VIEW IF EXISTS
 
 -- DROP TABLE IF EXISTS `product_order`;
 -- DROP TABLE IF EXISTS `log_order`;
+-- DROP TABLE IF EXISTS `log_cart`;
 -- DROP TABLE IF EXISTS `order`; 
 -- DROP TABLE IF EXISTS `product`; 
 -- DROP TABLE IF EXISTS `customer`; 
