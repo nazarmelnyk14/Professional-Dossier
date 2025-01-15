@@ -30,14 +30,15 @@ DROP VIEW IF EXISTS
 
 
 -- DROP TABLE IF EXISTS `product_order`;
--- DROP TABLE IF EXISTS `log_order`;
--- DROP TABLE IF EXISTS `log_cart`;
+DROP TABLE IF EXISTS `log_order`;
+DROP TABLE IF EXISTS `log_cart`;
 -- DROP TABLE IF EXISTS `order`; 
 -- DROP TABLE IF EXISTS `product`; 
 -- DROP TABLE IF EXISTS `customer`; 
 -- DROP TABLE IF EXISTS `address`;
--- DROP TABLE IF EXISTS `log_address`;
--- DROP TABLE IF EXISTS `log_customer_json`;
+DROP TABLE IF EXISTS `log_address`;
+DROP TABLE IF EXISTS `log_customer_address`;
+DROP TABLE IF EXISTS `log_customer`;
 
 
 
@@ -53,6 +54,7 @@ DROP TABLE IF EXISTS
     `address`,
     `customer_address`,
     `log_customer_address`,
+    `log_trigger`,
     `log_procedure` -- to remove from this list before submission   
 ;
 

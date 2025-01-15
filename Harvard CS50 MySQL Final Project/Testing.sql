@@ -1,6 +1,19 @@
+SELECT * FROM `cart`;
+SELECT * FROM `order`;
 SELECT * FROM `customer`;
 SELECT * FROM `log_customer`;
-SELECT * FROM `log_customer_json`;
+SELECT * FROM `log_cart`;
+SELECT * FROM `log_order`;
+SELECT * FROM `log_address`;
+
+UPDATE `product`
+SET `unit_price_USD` = 784.99
+WHERE `id` = 2;
+
+CALL `add_product_to_cart` (10,2,8);
+CALL `modify_product_quantity_at_cart` (10,2,7);
+CALL `remove_product_from_cart` (10,2);
+DROP PROCEDURE `remove_product_from_cart`;
 
 SELECT * FROM `customer` WHERE `mobile_number` = '33617382690';
 

@@ -23,21 +23,21 @@
     [] product_order
     [] address_customer
     
-[] Logs an JSONs
+[X] Logs an JSONs
 	[X] order
     [X] cart
     [X] customer
     [X] address
-    [] address_customer
+    [X] address_customer
     
 [] User procedures
 
-[] Log files
+[X] Log files
     [X] order
     [X] cart
     [X] customer
     [X] address
-    [] address_customer
+    [X] address_customer
 
 [] Triggers 2 per log file (UPDATE (incl DELETE) + INSERT): Product details can evolve, this should not impact the statistics
     [X] order
@@ -52,6 +52,16 @@
 
 
 -- ADDITIONAL
+[X] Remove FOREIGN KEY from log tables
+	- log_cart
+    - log_address
+    - log_customer_address
+    - log_order
+    - log_customer
+
+[X] Add `changed_by` field to the log tables and triggers associated
+
+[] If a product price evolves, then update all orders in the -new- state
 [] Prepared statements to protect against SQL injections ?
 [] SELECT statements inside JSON objects to 
 
@@ -148,10 +158,9 @@ CREATE TABLE IF NOT EXISTS `log_cart`(
     `action` VARCHAR(15),
     `description` TINYTEXT,
     `changed_data` JSON,
+    `changed_by` VARCHAR(50),
     `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY(`id`),
-    FOREIGN KEY(`cart_id`) REFERENCES `cart`(`id`) ON DELETE CASCADE,
-    FOREIGN KEY(`order_id`) REFERENCES `order`(`id`) ON DELETE CASCADE
+    PRIMARY KEY(`id`)
 );
 
 
@@ -162,9 +171,9 @@ CREATE TABLE IF NOT EXISTS `log_address`(
     `action` VARCHAR(15),
     `description` TINYTEXT,
     `changed_data` JSON,
+    `changed_by` VARCHAR(50),
     `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY(`id`),
-    FOREIGN KEY(`address_id`) REFERENCES `address`(`id`) ON DELETE CASCADE
+    PRIMARY KEY(`id`)
 );
 
 CREATE TABLE IF NOT EXISTS `log_customer_address`(
@@ -174,10 +183,9 @@ CREATE TABLE IF NOT EXISTS `log_customer_address`(
     `action` VARCHAR(15),
     `description` TINYTEXT,
     `changed_data` JSON,
+    `changed_by` VARCHAR(50),
     `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY(`id`),
-    FOREIGN KEY(`address_id`) REFERENCES `address`(`id`) ON DELETE CASCADE,
-    FOREIGN KEY(`customer_id`) REFERENCES `customer`(`id`) ON DELETE CASCADE
+    PRIMARY KEY(`id`)
 );
 
 
@@ -188,9 +196,9 @@ CREATE TABLE IF NOT EXISTS `log_order`(
     `action` VARCHAR(15),
     `description` TINYTEXT,
     `changed_data` JSON,
+    `changed_by` VARCHAR(50),
     `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY(`id`),
-    FOREIGN KEY(`order_id`) REFERENCES `order`(`id`) ON DELETE CASCADE
+    PRIMARY KEY(`id`)
 );
 
 CREATE TABLE IF NOT EXISTS `log_customer`(
@@ -199,9 +207,9 @@ CREATE TABLE IF NOT EXISTS `log_customer`(
     `action` VARCHAR(15),
     `description` TINYTEXT,
     `changed_data` JSON,
+    `changed_by` VARCHAR(50),
     `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY(`id`),
-    FOREIGN KEY(`customer_id`) REFERENCES `customer`(`id`) ON DELETE CASCADE
+    PRIMARY KEY(`id`)
 );
 
 
@@ -213,6 +221,14 @@ CREATE TABLE `log_procedure`(
     PRIMARY KEY(`id`)
 );
 
+CREATE TABLE `log_trigger`(
+	`id` INT AUTO_INCREMENT,
+    `trigger_name` VARCHAR(50),
+    `action` VARCHAR(15),
+    `description` TINYTEXT,
+    `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(`id`)
+);
 
 /* VIEWS */
 
@@ -292,12 +308,13 @@ CREATE TRIGGER `trigger_log_update_order`
         
         -- Only log if there are changes
         IF JSON_LENGTH(`changed_data`) > 0 THEN
-			INSERT INTO `log_order`(`order_id`, `action`, `description`, `changed_data`) VALUES
+			INSERT INTO `log_order`(`order_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES
             (
 				OLD.`id`,
                 'UPDATE',
                 'Order is updated',
-                `changed_data`
+                `changed_data`,
+                USER()
             );
         END IF;
         
@@ -308,7 +325,7 @@ CREATE TRIGGER `trigger_log_insert_order`
 	FOR EACH ROW
 	BEGIN
     
-       	INSERT INTO `log_order`(`order_id`, `action`, `description`, `changed_data`) VALUES
+       	INSERT INTO `log_order`(`order_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES
 		(
         NEW.`id`,
         'INSERT',
@@ -318,7 +335,8 @@ CREATE TRIGGER `trigger_log_insert_order`
             'customer_id', NEW.`customer_id`,
             'address_id', NEW.`address_id`,
             'status', NEW.`status`
-            )
+            ),
+		USER()
 		);
         
 	END$$
@@ -353,12 +371,13 @@ CREATE TRIGGER `trigger_log_update_customer`
         
 		-- Only log if there are changes
         IF JSON_LENGTH(changed_data) > 0 THEN
-			INSERT INTO `log_customer`(`customer_id`, `action`, `description`, `changed_data`) VALUES
+			INSERT INTO `log_customer`(`customer_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES
 			(
 			OLD.`id`,
 			'UPDATE',
 			'Customer info is updated',        
-			`changed_data`
+			`changed_data`,
+            USER()
 			);
 		END IF;
         
@@ -370,7 +389,7 @@ CREATE TRIGGER `trigger_log_insert_customer`
 	FOR EACH ROW
 	BEGIN
 		
-       	INSERT INTO `log_customer`(`customer_id`, `action`, `description`, `changed_data`) VALUES
+       	INSERT INTO `log_customer`(`customer_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES
 		(
         NEW.`id`, 
         'INSERT', 
@@ -381,7 +400,8 @@ CREATE TRIGGER `trigger_log_insert_customer`
             'last_name', NEW.`last_name`,
             'email', NEW.`email`,
             'mobile_number', NEW.`mobile_number`
-            )
+            ),
+		USER()
 		);
         
 	END$$
@@ -392,7 +412,7 @@ CREATE TRIGGER `trigger_log_delete_customer`
 	FOR EACH ROW
 	BEGIN
     
-       	INSERT INTO `log_customer`(`customer_id`, `action`, `description`, `changed_data`) VALUES
+       	INSERT INTO `log_customer`(`customer_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES
 		(
         OLD.`id`, 
         'DELETE', 
@@ -403,7 +423,8 @@ CREATE TRIGGER `trigger_log_delete_customer`
             'last_name', OLD.`last_name`,
             'email', OLD.`email`,
             'mobile_number', OLD.`mobile_number`
-            )
+            ),
+		USER()
 		);
         
 	END$$
@@ -414,7 +435,7 @@ CREATE TRIGGER `trigger_log_insert_address`
     FOR EACH ROW
     BEGIN
         
-        INSERT INTO `log_address` (`address_id`, `action`, `description`, `changed_data`) VALUES
+        INSERT INTO `log_address` (`address_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES
         (
 			NEW.`id`,
             'INSERT',
@@ -426,14 +447,15 @@ CREATE TRIGGER `trigger_log_insert_address`
                 'postal_code', NEW.`postal_code`,
                 'state', NEW.`state`,
                 'country', NEW.`country`
-            )
+            ),
+			USER()
         );
     
     END $$
     
     
 CREATE TRIGGER `trigger_log_update_address`
-	AFTER INSERT ON `address`
+	AFTER UPDATE ON `address`
     FOR EACH ROW
     BEGIN
 		
@@ -466,12 +488,13 @@ CREATE TRIGGER `trigger_log_update_address`
         
         -- Only log if there are changes
         IF JSON_LENGTH(changed_data) > 0 THEN
-			INSERT INTO `log_address` (`address_id`, `action`, `description`, `changed_data`) VALUES
+			INSERT INTO `log_address` (`address_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES
 				(
 					NEW.`id`,
 					'UPDATE',
 					'Address is updated',
-					`changed_data`
+					`changed_data`,
+                    USER()
 				);
 		END IF;
     
@@ -484,7 +507,7 @@ CREATE TRIGGER `trigger_log_delete_address`
     FOR EACH ROW
     BEGIN
         
-        INSERT INTO `log_address` (`address_id`, `action`, `description`, `changed_data`) VALUES
+        INSERT INTO `log_address` (`address_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES
         (
 			OLD.`id`,
             'DELETE',
@@ -496,7 +519,8 @@ CREATE TRIGGER `trigger_log_delete_address`
                 'postal_code', OLD.`postal_code`,
                 'state', OLD.`state`,
                 'country', OLD.`country`
-            )
+            ),
+            USER()
         );
     
     END $$
@@ -507,7 +531,7 @@ AFTER INSERT ON `cart`
 FOR EACH ROW
 BEGIN
 
-	INSERT INTO `log_cart`(`cart_id`, `order_id`, `action`, `description`, `changed_data`) VALUES (
+	INSERT INTO `log_cart`(`cart_id`, `order_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES (
 		NEW.`id`,
         NEW.`order_id`,
         'INSERT',
@@ -518,7 +542,8 @@ BEGIN
             'product_id', NEW.`product_id`,
             'quantity', NEW.`quantity`,
             'unit_price', NEW.`unit_price`
-        )
+        ),
+        USER()
     );
 
 END$$
@@ -529,7 +554,15 @@ BEFORE DELETE ON `cart`
 FOR EACH ROW
 BEGIN
 
-	INSERT INTO `log_cart`(`cart_id`, `order_id`, `action`, `description`, `changed_data`) VALUES (
+	-- Log the trigger start
+    INSERT INTO `log_trigger`(`trigger_name`, `action`, `description`) VALUES (
+		'trigger_log_delete_cart',
+        'START',
+        'Trigger execution started'
+    );
+
+	-- Run the trigger itself
+	INSERT INTO `log_cart`(`cart_id`, `order_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES (
 		OLD.`id`,
         OLD.`order_id`,
         'DELETE',
@@ -540,7 +573,15 @@ BEGIN
             'product_id', OLD.`product_id`,
             'quantity', OLD.`quantity`,
             'unit_price', OLD.`unit_price`
-        )
+        ),
+        USER()
+    );
+    
+    -- Log the end of the trigger
+    INSERT INTO `log_trigger`(`trigger_name`, `action`, `description`) VALUES (
+		'trigger_log_delete_cart',
+        'END',
+        'Trigger execution finished'
     );
 
 END$$
@@ -568,12 +609,13 @@ BEGIN
     
     -- Only log if there are changes
     IF JSON_LENGTH(`changed_data`) > 0 THEN
-		INSERT INTO `log_cart`(`cart_id`, `order_id`, `action`, `description`, `changed_data`) VALUES (
+		INSERT INTO `log_cart`(`cart_id`, `order_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES (
 		NEW.`id`,
         NEW.`order_id`,
-        'INSERT',
-        'A new product was added to a cart',
-        `changed_data`
+        'UPDATE',
+        'Product price or quanity have evolved within a cart',
+        `changed_data`,
+        USER()
 		);
     END IF;
 
@@ -585,7 +627,7 @@ AFTER INSERT ON `customer_address`
 FOR EACH ROW
 BEGIN
 
-	INSERT INTO `log_customer_address`(`customer_id`, `address_id`, `action`, `description`, `changed_data`) VALUES (
+	INSERT INTO `log_customer_address`(`customer_id`, `address_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES (
 		NEW.`customer_id`,
         NEW.`address_id`,
         'INSERT',
@@ -595,7 +637,8 @@ BEGIN
                 'customer_id', NEW.`customer_id`,
                 'address_id', NEW.`address_id`,
                 'nickname', NEW.`nickname`
-			)
+			),
+		USER()
     );
 
 END$$
@@ -605,7 +648,7 @@ BEFORE DELETE ON `customer_address`
 FOR EACH ROW
 BEGIN
 
-	INSERT INTO `log_customer_address`(`customer_id`, `address_id`, `action`, `description`, `changed_data`) VALUES (
+	INSERT INTO `log_customer_address`(`customer_id`, `address_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES (
 		OLD.`customer_id`,
         OLD.`address_id`,
         'DELETE',
@@ -615,7 +658,8 @@ BEGIN
                 'customer_id', OLD.`customer_id`,
                 'address_id', OLD.`address_id`,
                 'nickname', OLD.`nickname`
-			)
+			),
+		USER()
     );
 
 END$$
@@ -632,17 +676,18 @@ BEGIN
     
     -- Check the evolution of each attribute and append it to the JSON object
     IF NOT (NEW.`nickname` <=> OLD.`nickname`) THEN
-		SET `changed_data` = JSON_INSERT(`changed_data`, '$.nickname','old', OLD.`nickname`, 'new', NEW.`nickname`);
+		SET `changed_data` = JSON_INSERT(`changed_data`, '$.nickname', JSON_OBJECT('old', OLD.`nickname`, 'new', NEW.`nickname`));
     END IF;
 
 	-- Log only if the JSON if not empty
     IF JSON_LENGTH(`changed_data`) > 0 THEN
-		INSERT INTO `log_customer_address`(`customer_id`, `address_id`, `action`, `description`, `changed_data`) VALUES (
+		INSERT INTO `log_customer_address`(`customer_id`, `address_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES (
 		NEW.`customer_id`,
         NEW.`address_id`,
         'UPDATE',
         'An association of an address with a customer is updated',
-        `changed_data`
+        `changed_data`,
+        USER()
     );
     END IF;
     
@@ -878,8 +923,7 @@ BEGIN
         IF `var_order_status` = 'new' THEN
 			
 				IF `p_product_id` IN (SELECT `product_id` FROM `cart` WHERE `order_id` = `p_order_id`) THEN
-					UPDATE `cart`
-					SET `quantity` = `p_quantity`, `unit_price` = `var_unit_price`
+					DELETE FROM `cart`
 					WHERE `order_id` = `p_order_id` AND `product_id` = `p_product_id`;
 					
 				ELSE 
