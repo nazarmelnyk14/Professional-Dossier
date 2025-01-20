@@ -1,16 +1,18 @@
 SELECT * FROM `cart`;
 SELECT * FROM `order`;
 SELECT * FROM `customer`;
+SELECT * FROM `product`;
 SELECT * FROM `log_customer`;
 SELECT * FROM `log_cart`;
 SELECT * FROM `log_order`;
 SELECT * FROM `log_address`;
+SELECT * FROM `log_product`;
 
 UPDATE `product`
-SET `unit_price_USD` = 784.99
+SET `unit_price_USD` = 510
 WHERE `id` = 2;
 
-CALL `add_product_to_cart` (10,2,8);
+CALL `add_product_to_cart` (7,2,1);
 CALL `modify_product_quantity_at_cart` (10,2,7);
 CALL `remove_product_from_cart` (10,2);
 DROP PROCEDURE `remove_product_from_cart`;
@@ -30,7 +32,17 @@ WHERE `mobile_number` = '33617382690';
 
 Error Code: 1451. Cannot delete or update a parent row: a foreign key constraint fails (`cs50`.`log_customer`, CONSTRAINT `log_customer_ibfk_1` FOREIGN KEY (`customer_id`) REFERENCES `customer` (`id`))
 
+ALTER TABLE `cart`
+MODIFY `unit_price` DECIMAL(12 , 2 );
 
+ALTER TABLE `product`
+ALTER COLUMN `out of stock` `out_of_stock` TINYINT(1) DEFAULT FALSE;
+
+USE CS50;
+ALTER TABLE `cart`
+DROP COLUMN `unit_price_final`;
+
+DESCRIBE `product`;
 
 
 -- SELECT * FROM `product_line_price` LIMIT 10;

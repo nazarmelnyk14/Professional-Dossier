@@ -1,7 +1,6 @@
 /* REMAINED TO DO
 [X] today (January 07, 2025) Finish the log of procedures to find where is the error of the add_product_to_cart
 
-
 [X] timestamps
 
 [X] An order is to be created when the first product is added to the cart
@@ -39,17 +38,7 @@
     [X] address
     [X] address_customer
 
-[] Triggers 2 per log file (UPDATE (incl DELETE) + INSERT): Product details can evolve, this should not impact the statistics
-    [X] order
-        [X] UPDATE (incl DELETE)
-        [X] INSERT
-    [X] product_order
-        [X] UPDATE (incl DELETE)
-        [X] INSERT -- Not necessary, because the actual price is imported using the procedure
-    [] customer
-    [] address
-    [] address_customer
-
+[X] Triggers 3 per entity
 
 -- ADDITIONAL
 [X] Remove FOREIGN KEY from log tables
@@ -60,10 +49,11 @@
     - log_customer
 
 [X] Add `changed_by` field to the log tables and triggers associated
-
-[] If a product price evolves, then update all orders in the -new- state
+[X] If a product price evolves, then update all orders in the -new- state
 [] Prepared statements to protect against SQL injections ?
 [] SELECT statements inside JSON objects to 
+[] protection against null and negative values for numerical fields
+[] Simulate log in and user 
 
 */
 
@@ -75,12 +65,11 @@ CREATE TABLE IF NOT EXISTS `product` (
     `name` VARCHAR(70) NOT NULL,
     `description` TEXT,
     `unit_price_USD` DECIMAL(12 , 2) NOT NULL,
-	`deleted` BIT DEFAULT 0, -- the value of 1 (one) corresponds to 'yes', whereas 0 (zero) corresponds to 'no'
+	`out_of_stock` BIT DEFAULT 0, -- the value of 1 (one) corresponds to 'yes', whereas 0 (zero) corresponds to 'no'
     `datetime_created` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
 	`datetime_last_changed` DATETIME(0) DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`)
 );
-
 
 
 CREATE TABLE IF NOT EXISTS `customer`(
@@ -93,7 +82,6 @@ CREATE TABLE IF NOT EXISTS `customer`(
     `datetime_last_changed` DATETIME(0) DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY(`id`)
 );
-
 
 
 CREATE TABLE IF NOT EXISTS `address`(
@@ -135,20 +123,17 @@ CREATE TABLE IF NOT EXISTS `order`(
 );
 
 
-
 CREATE TABLE IF NOT EXISTS `cart`(
     `id` INT AUTO_INCREMENT,
     `order_id` INT,
     `product_id` INT,
     `quantity`  SMALLINT UNSIGNED DEFAULT 1,
-    `unit_price`  DECIMAL(12 , 2 ) NOT NULL DEFAULT 1, -- DEFAULT 1 because cannot be NULL
-    `unit_price_final`  DECIMAL(12 , 2 ) NOT NULL DEFAULT 1,
+    `unit_price`  DECIMAL(12 , 2 ), -- NOT NULL DEFAULT 1 because cannot be NULL
     `datetime_created` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
     `datetime_last_changed` DATETIME(0) DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY(`id`),
     FOREIGN KEY(`order_id`) REFERENCES `order`(`id`) ON DELETE CASCADE
 );
-
 
 
 CREATE TABLE IF NOT EXISTS `log_cart`(
@@ -164,7 +149,6 @@ CREATE TABLE IF NOT EXISTS `log_cart`(
 );
 
 
-
 CREATE TABLE IF NOT EXISTS `log_address`(
     `id` INT AUTO_INCREMENT,
     `address_id` INT,
@@ -175,6 +159,7 @@ CREATE TABLE IF NOT EXISTS `log_address`(
     `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(`id`)
 );
+
 
 CREATE TABLE IF NOT EXISTS `log_customer_address`(
 	`id` INT AUTO_INCREMENT,
@@ -189,7 +174,6 @@ CREATE TABLE IF NOT EXISTS `log_customer_address`(
 );
 
 
-
 CREATE TABLE IF NOT EXISTS `log_order`(
     `id` INT AUTO_INCREMENT,
     `order_id` INT,
@@ -200,6 +184,7 @@ CREATE TABLE IF NOT EXISTS `log_order`(
     `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(`id`)
 );
+
 
 CREATE TABLE IF NOT EXISTS `log_customer`(
     `id` INT AUTO_INCREMENT,
@@ -213,6 +198,19 @@ CREATE TABLE IF NOT EXISTS `log_customer`(
 );
 
 
+CREATE TABLE IF NOT EXISTS `log_product`(
+    `id` INT AUTO_INCREMENT,
+    `product_id` INT,
+    `action` VARCHAR(15),
+    `description` TINYTEXT,
+    `changed_data` JSON,
+    `changed_by` VARCHAR(50),
+    `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(`id`)
+);
+
+
+
 CREATE TABLE `log_procedure`(
     `id` INT AUTO_INCREMENT,
     `procedure_name` VARCHAR(50),
@@ -220,6 +218,7 @@ CREATE TABLE `log_procedure`(
     `datetime` DATETIME(0) DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(`id`)
 );
+
 
 CREATE TABLE `log_trigger`(
 	`id` INT AUTO_INCREMENT,
@@ -230,10 +229,12 @@ CREATE TABLE `log_trigger`(
     PRIMARY KEY(`id`)
 );
 
+
+
+
 /* VIEWS */
 
 -- get line prices
-
 CREATE VIEW `product_line_price` AS
 SELECT 
 	`order_id`, 
@@ -247,7 +248,6 @@ ORDER BY `order_id` ASC, `product_id` ASC;
 
 
 -- see statistics by products sold
-
 CREATE VIEW `stats_by_product` AS
 SELECT 
 	`product_id`, 
@@ -259,9 +259,7 @@ GROUP BY `product_id`
 ORDER BY `total_price` DESC, `total_quantity` DESC, `product_id` ASC;
 
 
-
 -- see statistics by orders
-
 CREATE VIEW `stats_by_order` AS
 SELECT
     `order_id`,
@@ -277,11 +275,55 @@ GROUP BY `cart`.`order_id`
 ORDER BY `order_total_price` DESC, `item_quantity` DESC, `order_id` ASC;
 
 
+
+
 /* TRIGGERS */
 
 DELIMITER $$
 
 -- triggers on changes to the `order` table
+CREATE TRIGGER `trigger_log_insert_order`
+	AFTER INSERT ON `order`
+	FOR EACH ROW
+	BEGIN
+    
+       	INSERT INTO `log_order`(`order_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES
+		(
+        NEW.`id`,
+        'INSERT',
+        'Order is created',
+        JSON_OBJECT(
+			'id', NEW.`id`,
+            'customer_id', NEW.`customer_id`,
+            'address_id', NEW.`address_id`,
+            'status', NEW.`status`
+            ),
+		USER()
+		);
+        
+	END$$
+    
+    
+CREATE TRIGGER `trigger_log_delete_order`
+BEFORE DELETE ON `order`
+FOR EACH ROW
+BEGIN
+	
+	INSERT INTO `log_order`(`order_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES (
+		OLD.`id`,
+        'DELETE',
+        'Order is deleted',
+        JSON_OBJECT(
+			'id', OLD.`id`,
+            'customer_id', OLD.`customer_id`,
+            'address_id', OLD.`address_id`,
+            'status', OLD.`status`
+            ),
+        USER()
+		);
+    
+END$$
+
 
 CREATE TRIGGER `trigger_log_update_order`
 	AFTER UPDATE ON `order`
@@ -320,29 +362,8 @@ CREATE TRIGGER `trigger_log_update_order`
         
 	END$$
 
-CREATE TRIGGER `trigger_log_insert_order`
-	AFTER INSERT ON `order`
-	FOR EACH ROW
-	BEGIN
-    
-       	INSERT INTO `log_order`(`order_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES
-		(
-        NEW.`id`,
-        'INSERT',
-        'Order is created',
-        JSON_OBJECT(
-			'id', NEW.`id`,
-            'customer_id', NEW.`customer_id`,
-            'address_id', NEW.`address_id`,
-            'status', NEW.`status`
-            ),
-		USER()
-		);
-        
-	END$$
     
 -- Triggers on the table Customer
-
 CREATE TRIGGER `trigger_log_update_customer`
 	AFTER UPDATE ON `customer`
 	FOR EACH ROW
@@ -693,11 +714,113 @@ BEGIN
     
 END$$
 
--- triggers on changes to the `order` table do not exist. Any changes to the `cart` table are traced inside `log_cart` table directly using the queries of the respective procedures on carts
-
 DELIMITER $$
 
--- This trigger is commented, because the actual price is directly managed by the Procedure `add_product_to_cart`
+CREATE TRIGGER `trigger_product_price_update`
+AFTER UPDATE ON `product`
+FOR EACH ROW
+BEGIN
+
+	-- Idea: When a product price evolves, then all orders in the status new should get price update
+    
+    -- Check either it was the price what have evolved
+    IF NOT (NEW.`unit_price_USD` <=> OLD.`unit_price_USD`) THEN
+        
+        -- Update the product unit price in all orders having that product and being still in the -new- state
+        UPDATE `cart`
+        SET `unit_price` = NEW.`unit_price_USD`
+        WHERE (`order_id` IN (SELECT `id` FROM `order` WHERE `status` = 'new')) AND `product_id` = NEW.`id`;
+        
+	END IF;
+    
+END$$
+
+
+CREATE TRIGGER `trigger_log_insert_product`
+AFTER INSERT ON `product`
+FOR EACH ROW
+BEGIN
+	
+    -- Log the product creationg
+	INSERT INTO `log_product` (`product_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES (
+			NEW.`id`,
+            'INSERT',
+            'New product was created',
+            JSON_OBJECT(
+					'name', NEW.`name`,
+                    'description', NEW.`description`,
+                    'unit_price_USD', NEW.`unit_price_USD`,
+                    'out_of_stock', NEW.`out_of_stock`
+                ),
+            USER()
+        );
+
+END$$
+
+
+CREATE TRIGGER `trigger_log_delete_product`
+BEFORE DELETE ON `product`
+FOR EACH ROW
+BEGIN
+
+	INSERT INTO `log_product` (`product_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES (
+			OLD.`id`,
+            'DELETE',
+            'A product was deleted',
+            JSON_OBJECT(
+					'name', OLD.`name`,
+                    'description', OLD.`description`,
+                    'unit_price_USD', OLD.`unit_price_USD`,
+                    'out_of_stock', OLD.`out_of_stock`
+                ),
+            USER()
+        );
+    
+END$$
+
+
+CREATE TRIGGER `trigger_log_update_product`
+AFTER UPDATE ON `product`
+FOR EACH ROW
+BEGIN
+
+	DECLARE `changed_data` JSON;
+    
+    -- Initialize the json object
+    SET `changed_data` = JSON_OBJECT();
+    
+    -- Check every value that could have been changed and append the record to the JSON file
+    IF NOT (NEW.`name` <=> OLD.`name`) THEN
+		SET `changed_data` = JSON_INSERT(`changed_data`, '$.name', JSON_OBJECT('old', OLD.`name`, 'new', NEW.`name`)) ;
+    END IF;
+    
+    IF NOT (NEW.`description` <=> OLD.`description`) THEN
+		SET `changed_data` = JSON_INSERT(`changed_data`, '$.description', JSON_OBJECT('old', OLD.`description`, 'new', NEW.`description`)) ;
+    END IF;
+    
+    IF NOT (NEW.`unit_price_USD` <=> OLD.`unit_price_USD`) THEN
+		SET `changed_data` = JSON_INSERT(`changed_data`, '$.unit_price_USD', JSON_OBJECT('old', OLD.`unit_price_USD`, 'new', NEW.`unit_price_USD`)) ;
+    END IF;
+    
+	IF NOT (NEW.`out_of_stock` <=> OLD.`out_of_stock`) THEN
+		SET `changed_data` = JSON_INSERT(`changed_data`, '$.out_of_stock', JSON_OBJECT('old', OLD.`out_of_stock`, 'new', NEW.`out_of_stock`)) ;
+    END IF;
+    
+    -- Log only if there were changes
+    IF JSON_LENGTH(`changed_data`) > 0 THEN
+    
+		INSERT INTO `log_product` (`product_id`, `action`, `description`, `changed_data`, `changed_by`) VALUES (
+			OLD.`id`,
+            'UPDATE',
+            'A product was updated',
+            `changed_data`,
+            USER()
+        );
+    END IF;
+
+END$$
+
+
 
 /* PROCEDURES */
 
@@ -822,20 +945,6 @@ BEGIN
     END IF;
 END$$
 
-DELIMITER ;
-
-
-CALL `add_product_to_cart`(2,8,3);
-
-SELECT * FROM `cart` JOIN `order` ON `order`.`id` = `cart`.`order_id`;
-
-DROP PROCEDURE `add_product_to_cart`;
-SELECT * FROM `order`;
-SELECT * FROM `cart`;
-SELECT `status` FROM `order` WHERE `id` = 12;
-
-
-
 /*
 This procedure :
 - adjusts the quantity of product a within an order AND 
@@ -863,24 +972,32 @@ BEGIN
         -- Check either the status is 'new'
         IF `var_order_status` = 'new' THEN
         
-			-- Check either the new quantity is different then the existing one
-			IF `p_quantity` != (SELECT `quantity` FROM `cart` WHERE `order_id` = `p_order_id` AND `product_id` = `p_product_id`) THEN
-			
-				IF `p_product_id` IN (SELECT `product_id` FROM `cart` WHERE `order_id` = `p_order_id`) THEN
-					UPDATE `cart`
-					SET `quantity` = `p_quantity`, `unit_price` = `var_unit_price`
-					WHERE `order_id` = `p_order_id` AND `product_id` = `p_product_id`;
+			-- Check either the product is already within the cart
+            IF `p_product_id` IN (SELECT `product_id` FROM `cart` WHERE `order_id` = `p_order_id`) THEN
+            
+					-- Check either the new quantity is different then the existing one
+					IF `p_quantity` != (SELECT `quantity` FROM `cart` WHERE `order_id` = `p_order_id` AND `product_id` = `p_product_id`) THEN
 					
-				ELSE 
-					SIGNAL SQLSTATE '45000' -- Custom error code
-					SET MESSAGE_TEXT = 'Such Product is NOT within the Order';
-				END IF;
+						IF `p_product_id` IN (SELECT `product_id` FROM `cart` WHERE `order_id` = `p_order_id`) THEN
+							UPDATE `cart`
+							SET `quantity` = `p_quantity`, `unit_price` = `var_unit_price`
+							WHERE `order_id` = `p_order_id` AND `product_id` = `p_product_id`;
+							
+						ELSE 
+							SIGNAL SQLSTATE '45000' -- Custom error code
+							SET MESSAGE_TEXT = 'Such Product is NOT within the Order';
+						END IF;
+					
+					ELSE
+						SIGNAL SQLSTATE '45000' -- Custom error code
+						SET MESSAGE_TEXT = 'The new quantity is the same as the existing one';
+					END IF;
 			
-			ELSE
+            ELSE
 				SIGNAL SQLSTATE '45000' -- Custom error code
-				SET MESSAGE_TEXT = 'The new quantity is the same as the existing one';
-			END IF;
-        
+				SET MESSAGE_TEXT = 'The product is not yet added to the cart. Please first add the product to the cart';
+            END IF;
+            
 		ELSE
 			SIGNAL SQLSTATE '45000' -- Custom error code
 			SET MESSAGE_TEXT = 'Such an Order exists, but is not in the state -new-';
@@ -892,19 +1009,11 @@ BEGIN
 	END IF;
 END$$
 
-DELIMITER ;
-
-DROP PROCEDURE `modify_product_quantity_at_cart`;
-SELECT * FROM `cart`;
-SELECT * FROM `order`;
-CALL `modify_product_quantity_at_cart`(2,3,2); 
 
 /*
 This procedure :
 - removes a product from a cart
 */
-
-DELIMITER $$
 
 CREATE PROCEDURE `remove_product_from_cart` (
 	IN `p_order_id` INT, -- existing order
